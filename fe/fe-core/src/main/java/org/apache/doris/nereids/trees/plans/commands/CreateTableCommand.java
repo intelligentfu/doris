@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.CharType;
@@ -90,8 +91,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
             CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
-            LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
-                    ctx.queryId(), createTableInfo.getTableName());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
+                        ctx.queryId(), createTableInfo.getTableName());
+            }
             try {
                 Env.getCurrentEnv().createTable(createTableStmt);
             } catch (Exception e) {
@@ -140,8 +143,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         }
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
-        LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
-                ctx.queryId(), createTableInfo.getTableName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
+                    ctx.queryId(), createTableInfo.getTableName());
+        }
         try {
             Env.getCurrentEnv().createTable(createTableStmt);
         } catch (Exception e) {
@@ -151,7 +156,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         query = new UnboundTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), query);
         try {
-            new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
+            new InsertIntoTableCommand(query, Optional.empty(), Optional.empty()).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }

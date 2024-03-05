@@ -20,11 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Objects;
+
 public class PartitionValue {
     public static final PartitionValue MAX_VALUE = new PartitionValue();
 
     private String value;
     private boolean isHiveDefaultPartition;
+    private boolean isNullPartition;
 
     private PartitionValue() {
 
@@ -40,6 +43,12 @@ public class PartitionValue {
 
     public PartitionValue(String value, boolean isHiveDefaultPartition) {
         this.value = value;
+        this.isHiveDefaultPartition = isHiveDefaultPartition;
+    }
+
+    public PartitionValue(String value, boolean isNullPartition, boolean isHiveDefaultPartition) {
+        this.value = value;
+        this.isNullPartition = isNullPartition;
         this.isHiveDefaultPartition = isHiveDefaultPartition;
     }
 
@@ -68,5 +77,27 @@ public class PartitionValue {
 
     public boolean isHiveDefaultPartition() {
         return isHiveDefaultPartition;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PartitionValue that = (PartitionValue) o;
+        return isHiveDefaultPartition == that.isHiveDefaultPartition && isNullPartition == that.isNullPartition
+                && Objects.equal(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(value, isHiveDefaultPartition, isNullPartition);
+    }
+
+    public boolean isNullPartition() {
+        return isNullPartition;
     }
 }

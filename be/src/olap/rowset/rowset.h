@@ -138,6 +138,7 @@ public:
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
+    void set_version(Version version);
     const TabletSchemaSPtr& tablet_schema() const { return _schema; }
 
     // helper class to access RowsetMeta
@@ -341,5 +342,8 @@ protected:
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
 };
+
+// `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
+Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
 
 } // namespace doris

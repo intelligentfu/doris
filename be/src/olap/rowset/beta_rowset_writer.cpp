@@ -166,7 +166,7 @@ Status BaseBetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _segment_creator.add_block(block);
 }
 
-Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
+Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
         (_context.partial_update_info && _context.partial_update_info->is_partial_update)) {
@@ -701,7 +701,7 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
                             : 0,
-    };
+            .create_empty_file = false};
     Status st = fs->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;

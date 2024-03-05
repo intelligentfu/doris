@@ -472,8 +472,7 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool _is_runtime_filter_predicate =
-                    _rf_vexpr_set.find(conjunct_expr_root) != _rf_vexpr_set.end();
+            bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -1304,8 +1303,8 @@ Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     // Init scanner wrapper
-    for (auto it = scanners.begin(); it != scanners.end(); ++it) {
-        _scanners.emplace_back(std::make_shared<ScannerDelegate>(*it));
+    for (auto& scanner : scanners) {
+        _scanners.emplace_back(std::make_shared<ScannerDelegate>(scanner));
     }
     if (scanners.empty()) {
         _eos = true;

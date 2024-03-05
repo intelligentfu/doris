@@ -209,6 +209,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
 
+    public static final String GLOBAL_PARTITION_TOPN_THRESHOLD = "global_partition_topn_threshold";
+
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
@@ -241,6 +243,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
+
+    public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
@@ -475,6 +479,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
 
+    public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
+
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
             = "huge_table_auto_analyze_interval_in_millis";
 
@@ -507,6 +513,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -529,7 +537,7 @@ public class SessionVariable implements Serializable, Writable {
     public  boolean enableStats = true;
 
     // session origin value
-    public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
+    public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
@@ -620,7 +628,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
     public long sqlMode = SqlModeHelper.MODE_DEFAULT;
 
-    @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE)
+    @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE, needForward = true)
     public String workloadGroup = "";
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
@@ -648,20 +656,20 @@ public class SessionVariable implements Serializable, Writable {
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
-    public String charsetClient = "utf8";
+    public String charsetClient = "utf8mb4";
     @VariableMgr.VarAttr(name = CHARACTER_SET_CONNNECTION)
-    public String charsetConnection = "utf8";
+    public String charsetConnection = "utf8mb4";
     @VariableMgr.VarAttr(name = CHARACTER_SET_RESULTS)
-    public String charsetResults = "utf8";
+    public String charsetResults = "utf8mb4";
     @VariableMgr.VarAttr(name = CHARACTER_SET_SERVER)
-    public String charsetServer = "utf8";
+    public String charsetServer = "utf8mb4";
     @VariableMgr.VarAttr(name = COLLATION_CONNECTION)
-    public String collationConnection = "utf8_general_ci";
+    public String collationConnection = "utf8mb4_0900_bin";
     @VariableMgr.VarAttr(name = COLLATION_DATABASE)
-    public String collationDatabase = "utf8_general_ci";
+    public String collationDatabase = "utf8mb4_0900_bin";
 
     @VariableMgr.VarAttr(name = COLLATION_SERVER)
-    public String collationServer = "utf8_general_ci";
+    public String collationServer = "utf8mb4_0900_bin";
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
@@ -730,6 +738,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
+    public boolean enableBucketShuffleDownGrade = false;
+
+    /**
+     * explode function row count enlarge factor.
+     */
+    @VariableMgr.VarAttr(name = GENERATE_STATS_FACTOR, checker = "checkGenerateStatsFactor",
+            setter = "setGenerateStatsFactor")
+    public int generateStatsFactor = 5;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
@@ -840,7 +858,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enablePipelineEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
-    private boolean enablePipelineXEngine = false;
+    private boolean enablePipelineXEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
@@ -1019,6 +1037,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
+
+    @VariableMgr.VarAttr(name = GLOBAL_PARTITION_TOPN_THRESHOLD)
+    private double globalPartitionTopNThreshold = 100;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
@@ -1422,7 +1443,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean truncateCharOrVarcharColumns = false;
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
-    public boolean enableMemtableOnSinkNode = true;
+    public boolean enableMemtableOnSinkNode = false;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 2;
@@ -1609,6 +1630,11 @@ public class SessionVariable implements Serializable, Writable {
             description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
                 "use other health replica when the use_fix_replica meet error" })
     public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
+
+    @VariableMgr.VarAttr(name = SHOW_ALL_FE_CONNECTION,
+            description = {"when it's true show processlist statement list all fe's connection",
+                    "当变量为true时，show processlist命令展示所有fe的连接"})
+    public boolean showAllFeConnection = false;
 
     // CLOUD_VARIABLES_BEGIN
     @VariableMgr.VarAttr(name = CLOUD_CLUSTER)
@@ -2089,6 +2115,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableBucketShuffleJoin;
     }
 
+    public boolean isEnableBucketShuffleDownGrade() {
+        return enableBucketShuffleDownGrade;
+    }
+
     public boolean isEnableOdbcTransaction() {
         return enableOdbcTransaction;
     }
@@ -2375,7 +2405,7 @@ public class SessionVariable implements Serializable, Writable {
         return forbidUnknownColStats;
     }
 
-    public void setForbidUnownColStats(boolean forbid) {
+    public void setForbidUnknownColStats(boolean forbid) {
         forbidUnknownColStats = forbid;
     }
 
@@ -2457,11 +2487,11 @@ public class SessionVariable implements Serializable, Writable {
         this.isSingleSetVar = issinglesetvar;
     }
 
-    public Map<Field, String> getSessionOriginValue() {
+    public Map<SessionVariableField, String> getSessionOriginValue() {
         return sessionOriginValue;
     }
 
-    public void addSessionOriginValue(Field key, String value) {
+    public void addSessionOriginValue(SessionVariableField key, String value) {
         if (sessionOriginValue.containsKey(key)) {
             // If we already set the origin value, just skip the reset.
             return;
@@ -2515,6 +2545,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnablePartitionTopN(boolean enablePartitionTopN) {
         this.enablePartitionTopN = enablePartitionTopN;
+    }
+
+    public double getGlobalPartitionTopNThreshold() {
+        return globalPartitionTopNThreshold;
+    }
+
+    public void setGlobalPartitionTopnThreshold(int threshold) {
+        this.globalPartitionTopNThreshold = threshold;
     }
 
     public boolean isEnableFoldNondeterministicFn() {
@@ -2595,8 +2633,12 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public Set<String> getDisableNereidsRuleNames() {
+        String checkPrivilege = RuleType.CHECK_PRIVILEGES.name();
+        String checkRowPolicy = RuleType.CHECK_ROW_POLICY.name();
         return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
+                .filter(rule -> !StringUtils.equalsIgnoreCase(rule, checkPrivilege)
+                        && !StringUtils.equalsIgnoreCase(rule, checkRowPolicy))
                 .collect(ImmutableSet.toImmutableSet());
     }
 
@@ -2604,7 +2646,10 @@ public class SessionVariable implements Serializable, Writable {
         return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
                 .filter(rule -> !rule.isEmpty())
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
-                .map(rule -> RuleType.valueOf(rule).type())
+                .map(rule -> RuleType.valueOf(rule))
+                .filter(ruleType -> ruleType != RuleType.CHECK_PRIVILEGES
+                        && ruleType != RuleType.CHECK_ROW_POLICY)
+                .map(RuleType::type)
                 .collect(ImmutableSet.toImmutableSet());
     }
 
@@ -3046,7 +3091,9 @@ public class SessionVariable implements Serializable, Writable {
                     continue;
                 }
 
-                LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
+                }
 
                 // set config field
                 switch (f.getType().getSimpleName()) {
@@ -3175,6 +3222,15 @@ public class SessionVariable implements Serializable, Writable {
         this.dumpNereidsMemo = dumpNereidsMemo;
     }
 
+    public void disableStrictConsistencyDmlOnce() throws DdlException {
+        if (!enableStrictConsistencyDml) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, new StringLiteral("false")));
+    }
+
     public void enableFallbackToOriginalPlannerOnce() throws DdlException {
         if (enableFallbackToOriginalPlanner) {
             return;
@@ -3284,6 +3340,30 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkGenerateStatsFactor(String generateStatsFactor) {
+        int value = Integer.valueOf(generateStatsFactor);
+        if (value <= 0) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException("Generate stats factor " + value + " should greater than 0");
+            LOG.warn("Check generate stats factor failed", exception);
+            throw exception;
+        }
+    }
+
+    public void setGenerateStatsFactor(int factor) {
+        this.generateStatsFactor = factor;
+        if (factor <= 0) {
+            LOG.warn("Invalid generate stats factor: {}", factor, new RuntimeException(""));
+        }
+    }
+
+    public void setGenerateStatsFactor(String factor) {
+        this.generateStatsFactor = Integer.valueOf(factor);
+        if (generateStatsFactor <= 0) {
+            LOG.warn("Invalid generate stats factor: {}", generateStatsFactor, new RuntimeException(""));
+        }
+    }
+
     public boolean getEnableDescribeExtendVariantColumn() {
         return enableDescribeExtendVariantColumn;
     }
@@ -3383,4 +3463,9 @@ public class SessionVariable implements Serializable, Writable {
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
         this.forceToLocalShuffle = forceToLocalShuffle;
     }
+
+    public boolean getShowAllFeConnection() {
+        return this.showAllFeConnection;
+    }
+
 }

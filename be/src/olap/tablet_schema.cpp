@@ -20,6 +20,9 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
+#include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 
 #include <algorithm>
 #include <cctype>
@@ -27,6 +30,7 @@
 #include <cmath> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
@@ -617,6 +621,13 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     if (!_column_path.empty()) {
         // CHECK_GT(_parent_col_unique_id, 0);
         _column_path.to_protobuf(column->mutable_column_path_info(), _parent_col_unique_id);
+        // Update unstable information for variant columns. Some of the fields in the tablet schema
+        // are irrelevant for variant sub-columns, but retaining them may lead to an excessive growth
+        // in the number of tablet schema cache entries.
+        if (_type == FieldType::OLAP_FIELD_TYPE_STRING) {
+            column->set_length(INT_MAX);
+        }
+        column->set_index_length(0);
     }
     for (auto& col : _sparse_cols) {
         ColumnPB* sparse_column = column->add_sparse_columns();
@@ -780,7 +791,7 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
         index->add_col_unique_id(col_unique_id);
     }
     index->set_index_type(_index_type);
-    for (auto& kv : _properties) {
+    for (const auto& kv : _properties) {
         (*index->mutable_properties())[kv.first] = kv.second;
     }
     index->set_index_suffix_name(_escaped_index_suffix_path);
@@ -944,7 +955,7 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
 std::string TabletSchema::to_key() const {
     TabletSchemaPB pb;
     to_schema_pb(&pb);
-    return pb.SerializeAsString();
+    return TabletSchema::deterministic_string_serialize(pb);
 }
 
 void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version,
@@ -1187,7 +1198,7 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
 }
 
 Status TabletSchema::have_column(const std::string& field_name) const {
-    if (!_field_name_to_index.count(field_name)) {
+    if (!_field_name_to_index.contains(field_name)) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "Not found field_name, field_name:{}, schema:{}", field_name,
                 get_all_field_names());
@@ -1196,7 +1207,7 @@ Status TabletSchema::have_column(const std::string& field_name) const {
 }
 
 const TabletColumn& TabletSchema::column(const std::string& field_name) const {
-    DCHECK(_field_name_to_index.count(field_name) != 0)
+    DCHECK(_field_name_to_index.contains(field_name))
             << ", field_name=" << field_name << ", field_name_to_index=" << get_all_field_names();
     const auto& found = _field_name_to_index.find(field_name);
     return _cols[found->second];
@@ -1218,6 +1229,17 @@ std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
     }
 
     return indexes_for_column;
+}
+
+void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
+                                         const std::vector<TColumn>& t_columns) {
+    copy_from(tablet_schema);
+    if (!t_columns.empty() && t_columns[0].col_unique_id >= 0) {
+        clear_columns();
+        for (const auto& column : t_columns) {
+            append_column(TabletColumn(column));
+        }
+    }
 }
 
 bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
@@ -1409,6 +1431,15 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
+}
+
+std::string TabletSchema::deterministic_string_serialize(const TabletSchemaPB& schema_pb) {
+    std::string output;
+    google::protobuf::io::StringOutputStream string_output_stream(&output);
+    google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
+    output_stream.SetSerializationDeterministic(true);
+    schema_pb.SerializeToCodedStream(&output_stream);
+    return output;
 }
 
 } // namespace doris

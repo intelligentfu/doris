@@ -20,6 +20,7 @@
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -30,6 +31,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 #include <ostream>
 #include <utility>
 
@@ -42,15 +44,15 @@
 namespace doris {
 
 namespace s3_bvar {
-bvar::Adder<uint64_t> s3_get_total("s3_get", "total_num");
-bvar::Adder<uint64_t> s3_put_total("s3_put", "total_num");
-bvar::Adder<uint64_t> s3_delete_total("s3_delete", "total_num");
-bvar::Adder<uint64_t> s3_head_total("s3_head", "total_num");
-bvar::Adder<uint64_t> s3_multi_part_upload_total("s3_multi_part_upload", "total_num");
-bvar::Adder<uint64_t> s3_list_total("s3_list", "total_num");
-bvar::Adder<uint64_t> s3_list_object_versions_total("s3_list_object_versions", "total_num");
-bvar::Adder<uint64_t> s3_get_bucket_version_total("s3_get_bucket_version", "total_num");
-bvar::Adder<uint64_t> s3_copy_object_total("s3_copy_object", "total_num");
+bvar::LatencyRecorder s3_get_latency("s3_get");
+bvar::LatencyRecorder s3_put_latency("s3_put");
+bvar::LatencyRecorder s3_delete_latency("s3_delete");
+bvar::LatencyRecorder s3_head_latency("s3_head");
+bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
+bvar::LatencyRecorder s3_list_latency("s3_list");
+bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
+bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
+bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 }; // namespace s3_bvar
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
@@ -174,6 +176,8 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
+    aws_config.retryStrategy =
+            std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry);
     std::shared_ptr<Aws::S3::S3Client> new_client;
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
         Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);

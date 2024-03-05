@@ -88,7 +88,9 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -164,7 +166,9 @@ public class EditLog {
     public static void loadJournal(Env env, Long logId, JournalEntity journal) {
         short opCode = journal.getOpCode();
         if (opCode != OperationType.OP_SAVE_NEXTID && opCode != OperationType.OP_TIMESTAMP) {
-            LOG.debug("replay journal op code: {}", opCode);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("replay journal op code: {}", opCode);
+            }
         }
         try {
             switch (opCode) {
@@ -534,7 +538,9 @@ public class EditLog {
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
-                    LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
+                    }
 
                     // state.loadedTableIndexIds is updated after replay
                     if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -546,7 +552,9 @@ public class EditLog {
                 case OperationType.OP_DELETE_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
-                    LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+                    }
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
@@ -986,7 +994,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    log.getTableIf().dropConstraint(log.getConstraint().getName());
+                    log.getTableIf().replayDropConstraint(log.getConstraint().getName());
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -1175,8 +1183,14 @@ public class EditLog {
                     env.getExternalMetaIdMgr().replayMetaIdMappingsLog((MetaIdMappingsLog) journal.getData());
                     break;
                 }
-                case OperationType.OP_LOG_UPDATE_ROWS:
-                case OperationType.OP_LOG_NEW_PARTITION_LOADED:
+                case OperationType.OP_LOG_UPDATE_ROWS: {
+                    env.getAnalysisManager().replayUpdateRowsRecord((UpdateRowsEvent) journal.getData());
+                    break;
+                }
+                case OperationType.OP_LOG_NEW_PARTITION_LOADED: {
+                    env.getAnalysisManager().replayNewPartitionLoadedEvent((NewPartitionLoadedEvent) journal.getData());
+                    break;
+                }
                 case OperationType.OP_LOG_ALTER_COLUMN_STATS: {
                     // TODO: implement this while statistics finished related work.
                     break;
@@ -2014,6 +2028,14 @@ public class EditLog {
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
+    }
+
+    public void logUpdateRowsRecord(UpdateRowsEvent record) {
+        logEdit(OperationType.OP_LOG_UPDATE_ROWS, record);
+    }
+
+    public void logNewPartitionLoadedEvent(NewPartitionLoadedEvent event) {
+        logEdit(OperationType.OP_LOG_NEW_PARTITION_LOADED, event);
     }
 
     public void logDeleteTableStats(TableStatsDeletionLog log) {

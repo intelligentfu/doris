@@ -42,6 +42,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Map;
 
 
@@ -74,6 +75,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_TRINO = "jdbc:trino";
     public static final String JDBC_PRESTO = "jdbc:presto";
     public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
+    public static final String JDBC_DB2 = "jdbc:db2";
 
     public static final String NEBULA = "NEBULA";
     public static final String MYSQL = "MYSQL";
@@ -86,6 +88,7 @@ public class JdbcResource extends Resource {
     public static final String PRESTO = "PRESTO";
     public static final String OCEANBASE = "OCEANBASE";
     public static final String OCEANBASE_ORACLE = "OCEANBASE_ORACLE";
+    public static final String DB2 = "DB2";
 
     public static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
     public static final String JDBC_URL = "jdbc_url";
@@ -95,7 +98,6 @@ public class JdbcResource extends Resource {
     public static final String DRIVER_URL = "driver_url";
     public static final String TYPE = "type";
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
-    public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String CONNECTION_POOL_MIN_SIZE = "connection_pool_min_size";
     public static final String CONNECTION_POOL_MAX_SIZE = "connection_pool_max_size";
     public static final String CONNECTION_POOL_MAX_WAIT_TIME = "connection_pool_max_wait_time";
@@ -112,7 +114,8 @@ public class JdbcResource extends Resource {
             TYPE,
             CREATE_TIME,
             ONLY_SPECIFIED_DATABASE,
-            LOWER_CASE_TABLE_NAMES,
+            LOWER_CASE_META_NAMES,
+            META_NAMES_MAPPING,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
@@ -123,7 +126,8 @@ public class JdbcResource extends Resource {
     ).build();
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
-            LOWER_CASE_TABLE_NAMES,
+            LOWER_CASE_META_NAMES,
+            META_NAMES_MAPPING,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
@@ -139,7 +143,8 @@ public class JdbcResource extends Resource {
 
     static {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_META_NAMES, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(META_NAMES_MAPPING, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MIN_SIZE, "1");
@@ -275,14 +280,28 @@ public class JdbcResource extends Resource {
         }
     }
 
-    public static String getFullDriverUrl(String driverUrl) {
+    public static String getFullDriverUrl(String driverUrl) throws IllegalArgumentException {
         try {
             URI uri = new URI(driverUrl);
             String schema = uri.getScheme();
             if (schema == null && !driverUrl.startsWith("/")) {
                 return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
+            } else {
+                if ("*".equals(Config.jdbc_driver_secure_path)) {
+                    return driverUrl;
+                } else if (Config.jdbc_driver_secure_path.trim().isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "jdbc_driver_secure_path is set to empty, disallowing all driver URLs.");
+                } else {
+                    boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
+                            .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
+                    if (!isAllowed) {
+                        throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
+                    } else {
+                        return driverUrl;
+                    }
+                }
             }
-            return driverUrl;
         } catch (URISyntaxException e) {
             LOG.warn("invalid jdbc driver url: " + driverUrl);
             return driverUrl;
@@ -310,6 +329,8 @@ public class JdbcResource extends Resource {
             return OCEANBASE;
         } else if (url.startsWith(JDBC_NEBULA)) {
             return NEBULA;
+        } else if (url.startsWith(JDBC_DB2)) {
+            return DB2;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
@@ -399,7 +420,7 @@ public class JdbcResource extends Resource {
     }
 
     private static String getDelimiter(String jdbcUrl, String dbType) {
-        if (dbType.equals(SQLSERVER)) {
+        if (dbType.equals(SQLSERVER) || dbType.equals(DB2)) {
             return ";";
         } else if (jdbcUrl.contains("?")) {
             return "&";

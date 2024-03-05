@@ -623,7 +623,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // Use -1 for catalog id and db id when failed to get them from metadata.
             // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache
             // and the table id is globally unique.
-            LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
+            }
             catalogId = -1;
             dbId = -1;
         }
@@ -647,7 +649,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
         TableIf table = catalogRelation.getTable();
-        double rowCount = catalogRelation.getTable().estimatedRowCount();
+        double rowCount = catalogRelation.getTable().getRowCountForNereids();
         boolean hasUnknownCol = false;
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
@@ -955,7 +957,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Statistics computeGenerate(Generate generate) {
         Statistics stats = groupExpression.childStatistics(0);
-        double count = stats.getRowCount() * generate.getGeneratorOutput().size() * 5;
+        int statsFactor = ConnectContext.get().getSessionVariable().generateStatsFactor;
+        double count = stats.getRowCount() * generate.getGeneratorOutput().size() * statsFactor;
         Map<Expression, ColumnStatistic> columnStatsMap = Maps.newHashMap();
         for (Map.Entry<Expression, ColumnStatistic> entry : stats.columnStatistics().entrySet()) {
             ColumnStatistic columnStatistic = new ColumnStatisticBuilder(entry.getValue()).setCount(count).build();

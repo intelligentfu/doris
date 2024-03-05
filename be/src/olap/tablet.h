@@ -59,7 +59,7 @@ namespace doris {
 
 class Tablet;
 class CumulativeCompactionPolicy;
-class Compaction;
+class CompactionMixin;
 class SingleReplicaCompaction;
 class RowsetWriter;
 struct RowsetWriterContext;
@@ -70,7 +70,6 @@ class TupleDescriptor;
 class CalcDeleteBitmapToken;
 enum CompressKind : int;
 class RowsetBinlogMetasPB;
-struct TabletTxnInfo;
 
 namespace io {
 class RemoteFileSystem;
@@ -184,8 +183,6 @@ public:
 
     std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
-    std::mutex& get_schema_change_lock() { return _schema_change_lock; }
-
     std::mutex& get_build_inverted_index_lock() { return _build_inverted_index_lock; }
 
     // operation for compaction
@@ -275,12 +272,11 @@ public:
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
-    static Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                           const TabletSharedPtr& tablet,
-                                                           std::shared_ptr<Compaction>& compaction,
-                                                           int64_t& permits);
+    static Status prepare_compaction_and_calculate_permits(
+            CompactionType compaction_type, const TabletSharedPtr& tablet,
+            std::shared_ptr<CompactionMixin>& compaction, int64_t& permits);
 
-    void execute_compaction(Compaction& compaction);
+    void execute_compaction(CompactionMixin& compaction);
     void execute_single_replica_compaction(SingleReplicaCompaction& compaction);
 
     void set_cumulative_compaction_policy(
@@ -309,7 +305,8 @@ public:
                                                                bool vertical) override;
 
     Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
-            const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info);
+            const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
+            int64_t txn_expiration = 0) override;
     Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
             RowsetWriterContext& context, const RowsetId& rowset_id);
 
@@ -373,11 +370,13 @@ public:
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
 
-    static Status update_delete_bitmap(const TabletSharedPtr& self, const TabletTxnInfo* txn_info,
-                                       int64_t txn_id);
-
     static Status update_delete_bitmap_without_lock(const TabletSharedPtr& self,
                                                     const RowsetSharedPtr& rowset);
+
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
+    Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
+                              DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
+                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
 
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
@@ -451,9 +450,6 @@ public:
 
     void set_binlog_config(BinlogConfig binlog_config);
 
-    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
-                                           int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
-                                           std::vector<RowsetSharedPtr>* rowsets = nullptr);
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
@@ -491,8 +487,6 @@ private:
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
 
-    void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
@@ -507,7 +501,6 @@ private:
     std::mutex _ingest_lock;
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
-    std::mutex _schema_change_lock;
     std::shared_timed_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
 

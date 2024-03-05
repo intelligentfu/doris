@@ -113,7 +113,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
-    if (request.__isset.query_options) {
+    if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout_second = request.query_options.execution_timeout;
     }
 
@@ -126,9 +126,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals = _query_ctx->query_globals;
-    _runtime_state =
-            RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
-    _runtime_state->set_query_ctx(_query_ctx.get());
+    _runtime_state = RuntimeState::create_unique(params, request.query_options, query_globals,
+                                                 _exec_env, _query_ctx.get());
     _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
@@ -625,7 +624,7 @@ void PlanFragmentExecutor::close() {
             }
         }
 
-        if (_is_report_success) {
+        if (_runtime_state->enable_profile()) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:

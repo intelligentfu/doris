@@ -156,7 +156,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     tablet_schema->init_from_pb(new_tablet_meta_pb.schema());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
-    std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
+    std::unordered_map<RowsetId, RowsetId> rowset_id_mapping;
     guards.reserve(cloned_tablet_meta_pb.rs_metas_size() +
                    cloned_tablet_meta_pb.stale_rs_metas_size());
     for (auto&& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
@@ -335,23 +335,6 @@ Status SnapshotManager::_link_index_and_data_files(
         RETURN_IF_ERROR(rs->link_files_to(schema_hash_path, rs->rowset_id()));
     }
     return res;
-}
-
-// `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
-Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
-    if (rowsets.size() < 2) {
-        return Status::OK();
-    }
-    auto prev = rowsets.begin();
-    for (auto it = rowsets.begin() + 1; it != rowsets.end(); ++it) {
-        if ((*prev)->end_version() + 1 != (*it)->start_version()) {
-            return Status::InternalError("versions are not continuity: prev={} cur={}",
-                                         (*prev)->version().to_string(),
-                                         (*it)->version().to_string());
-        }
-        prev = it;
-    }
-    return Status::OK();
 }
 
 Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
